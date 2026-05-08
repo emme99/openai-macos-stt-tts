@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>macOS Native TTS & STT Service</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0071e3;
+            --primary-hover: #0077ed;
+            --bg: #f5f5f7;
+            --card-bg: rgba(255, 255, 255, 0.8);
+            --text: #1d1d1f;
+            --text-secondary: #86868b;
+            --border: #d2d2d7;
+            --radius: 12px;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .container { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: var(--radius);
+            padding: 32px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.05);
+            border: 1px solid rgba(255,255,255,0.3);
+            display: flex;
+            flex-direction: column;
+        }
+
+        h2 {
+            font-family: 'Outfit', sans-serif;
+            margin-top: 0;
+            margin-bottom: 24px;
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #0071e3 0%, #40b3ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .field { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; color: var(--text-secondary); }
+        
+        textarea, select, input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: white;
+            font-size: 15px;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            width: 100%;
+        }
+
+        button:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
+        button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+
+        .result-box {
+            margin-top: 24px;
+            background: rgba(0,0,0,0.03);
+            padding: 16px;
+            border-radius: 8px;
+            min-height: 50px;
+            font-size: 14px;
+            white-space: pre-wrap;
+            border: 1px dashed var(--border);
+        }
+
+        audio { width: 100%; margin-top: 20px; border-radius: 8px; }
+        
+        .status {
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--primary);
+            font-weight: 500;
+        }
+
+        .logo-header {
+            grid-column: 1 / -1;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .logo-header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 32px;
+            margin: 0;
+            color: var(--text);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo-header">
+            <h1>macOS AI Toolkit</h1>
+            <p style="color: var(--text-secondary)">OpenAI-Compatible API powered by Native Resources</p>
+        </div>
+
+        <!-- TTS Section -->
+        <div class="card">
+            <h2>Text-to-Speech</h2>
+            <div class="field">
+                <label for="textInput">Testo da sintetizzare</label>
+                <textarea id="textInput" rows="5" placeholder="Inserisci il testo qui...">Ciao, sto usando la voce di sistema di macOS tramite API!</textarea>
+            </div>
+            <div class="field">
+                <label>Voce (Siri Default)</label>
+                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">Il servizio utilizza automaticamente la voce di sistema configurata (es. Siri Voce 1).</p>
+            </div>
+            <button id="generateBtn">Genera Audio</button>
+            <div id="ttsStatus" class="status"></div>
+            <audio id="audioPlayer" controls></audio>
+        </div>
+
+        <!-- STT Section -->
+        <div class="card">
+            <h2>Speech-to-Text</h2>
+            <div class="field">
+                <label for="audioFile">File Audio (mp3, wav, m4a...)</label>
+                <input type="file" id="audioFile" accept="audio/*">
+            </div>
+            <div class="field">
+                <label for="langSelect">Lingua</label>
+                <select id="langSelect">
+                    <option value="it-IT">Italiano (it-IT)</option>
+                    <option value="en-US">Inglese (en-US)</option>
+                    <option value="fr-FR">Francese (fr-FR)</option>
+                    <option value="de-DE">Tedesco (de-DE)</option>
+                    <option value="es-ES">Spagnolo (es-ES)</option>
+                </select>
+            </div>
+            <button id="transcribeBtn">Trascrivi Audio</button>
+            <div id="sttStatus" class="status"></div>
+            <div id="sttResult" class="result-box">La trascrizione apparirà qui...</div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

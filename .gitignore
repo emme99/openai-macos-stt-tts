@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+temp/
+certs/
+web-app/node_modules/
+web-app/uploads/
+macos-transcribe/.build/
