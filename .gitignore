@@ -7,3 +7,5 @@ certs/
 web-app/node_modules/
 web-app/uploads/
 macos-transcribe/.build/
+.env
+*.mp3
