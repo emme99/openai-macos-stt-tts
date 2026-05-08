@@ -16,7 +16,8 @@ Questo progetto espone un servizio API compatibile con OpenAI per le funzioni di
 - macOS (testato su macOS 14+ Sonoma)
 - Python 3.14+
 - `ffmpeg` installato (es. via Homebrew: `brew install ffmpeg`)
-- Binario `macos-transcribe` (già incluso/compilato nel progetto)
+- Xcode Command Line Tools (`xcode-select --install`)
+- Tool `macos-transcribe`: va compilato (vedi sezione dedicata sotto)
 
 ## Struttura del Progetto
 
@@ -50,7 +51,17 @@ python app.py
 - Con `USE_HTTP=True`: server su `http://localhost:5050`
 - Con `USE_HTTP=False` o omesso: server su `https://localhost:5050` con certificato self-signed (generato automaticamente in `certs/`)
 
-### 4. Avvio del Web Tester
+### 4. Compilazione di macos-transcribe
+
+Il tool di trascrizione nativo va compilato con Swift:
+```bash
+cd macos-transcribe
+swift build -c release
+cd ..
+```
+Il binario verrà generato in `macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe`, percorso già configurato in `config.py`.
+
+### 5. Avvio del Web Tester
 ```bash
 cd web-app
 npm install
