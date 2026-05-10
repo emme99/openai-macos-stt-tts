@@ -5,7 +5,7 @@ Questo progetto espone un servizio API compatibile con OpenAI per le funzioni di
 ## Caratteristiche
 
 - **TTS Compatibile OpenAI**: Endpoint `/v1/audio/speech` che utilizza la sintesi vocale di sistema.
-- **Siri Voices Support**: Utilizza automaticamente la voce di sistema predefinita (es. Siri Voce 1), garantendo un'altissima qualità audio senza configurazioni complesse.
+- **Mapping Voci OpenAI-to-macOS**: Supporta i parametri `voice` (nomi OpenAI: alloy, echo, nova, ecc.) e `language` per selezionare voci di sistema native (Siri, Alice, Samantha, ecc.) con mapping configurabile in `config.py`.
 - **STT Compatibile OpenAI**: Endpoint `/v1/audio/transcriptions` che utilizza il framework `Speech` di Apple tramite il tool `macos-transcribe`.
 - **HTTP/HTTPS configurabile**: Server Flask sulla porta 5050 con supporto HTTPS (certificati self-signed) o HTTP semplice, tramite variabile `USE_HTTP` in `.env`.
 - **Web Tester**: Interfaccia web moderna per testare rapidamente sia la sintesi che la trascrizione.
@@ -14,7 +14,7 @@ Questo progetto espone un servizio API compatibile con OpenAI per le funzioni di
 ## Requisiti
 
 - macOS (testato su macOS 14+ Sonoma)
-- Python 3.14+
+- Python 3.8+
 - `ffmpeg` installato (es. via Homebrew: `brew install ffmpeg`)
 - Xcode Command Line Tools (`xcode-select --install`)
 - Tool `macos-transcribe`: va compilato (vedi sezione dedicata sotto)
@@ -67,17 +67,31 @@ cd web-app
 npm install
 npm start
 ```
-Il tester sarà disponibile su `http://localhost:3000` e rispetta automaticamente la stessa configurazione `USE_HTTP` del `.env`.
+Il tester sarà disponibile su `http://localhost:3000` e rispetta la configurazione `USE_HTTP` del `.env` (default: HTTPS se il file `.env` non esiste o `USE_HTTP` non è impostato).
 
 ## Utilizzo API
 
 ### Text-to-Speech (TTS)
 **Endpoint**: `POST /v1/audio/speech`
+
+Parametri supportati:
+- `input` (stringa, obbligatorio) — testo da sintetizzare
+- `voice` (stringa, default `"alloy"`) — voce OpenAI mappata su voci macOS (alloy, echo, nova, onyx, shimmer, fable)
+- `language` (stringa, opzionale) — sovrascrive la voce in base alla lingua (es. `"it"`, `"en"`, `"fr"`)
+- `speed` (float, default `1.0`) — velocità di lettura
+- `response_format` (stringa, default `"mp3"`) — formato audio: mp3, opus, aac, flac, wav, pcm
+
 ```bash
-# Con HTTP:
+# Base - solo input:
 curl -X POST http://localhost:5050/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"input": "Ciao, sono il tuo Mac che parla!","speed": 1.0}' \
+  -d '{"input": "Ciao, sono il tuo Mac che parla!"}' \
+  --output audio.mp3
+
+# Con voce e lingua specifici:
+curl -X POST http://localhost:5050/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Hello, I am your Mac speaking!","voice": "nova","language": "en","speed": 1.2}' \
   --output audio.mp3
 
 # Con HTTPS (aggiungi -k per certificato self-signed):
@@ -89,8 +103,15 @@ curl -k -X POST https://localhost:5050/v1/audio/speech \
 
 ### Speech-to-Text (STT)
 **Endpoint**: `POST /v1/audio/transcriptions`
+
+Parametri supportati:
+- `file` (file, obbligatorio) — file audio da trascrivere
+- `model` (stringa, default `"whisper-1"`) — compatibile OpenAI (valore a scopo identificativo)
+- `language` (stringa, default `"en-US"`) — lingua del parlato (es. `"it-IT"`, `"fr-FR"`, `"de-DE"`)
+- `response_format` (stringa, default `"json"`) — formato risposta: json, verbose_json, text
+
 ```bash
-# Con HTTP:
+# Base - file e lingua esplicita:
 curl -X POST http://localhost:5050/v1/audio/transcriptions \
   -F "file=@audio.mp3" \
   -F "model=whisper-1" \
@@ -100,9 +121,16 @@ curl -X POST http://localhost:5050/v1/audio/transcriptions \
 curl -k -X POST https://localhost:5050/v1/audio/transcriptions \
   -F "file=@audio.mp3" \
   -F "model=whisper-1" \
-  -F "language=it-IT"
+  -F "language=en-US"
 ```
 
+### Voci Disponibili
+**Endpoint**: `GET /v1/voices`
+```bash
+curl http://localhost:5050/v1/voices
+```
+Restituisce la lista delle voci OpenAI supportate, il mapping verso le voci macOS e il mapping personalizzato per lingua.
+
 ## Note Tecniche
-- Il comando `say` viene eseguito senza il parametro `-v` per permettere l'utilizzo delle voci Siri di sistema, che offrono una naturalezza superiore.
+- Il comando `say` viene eseguito senza il parametro `-v`, delegando la scelta della voce al mapping in `config.py` (parametro `voice` dell'API) che utilizza le voci Siri/native di sistema per una qualità superiore.
 - L'audio viene normalizzato a 16kHz mono WAV prima di essere processato dal framework `Speech` per massimizzare l'accuratezza.

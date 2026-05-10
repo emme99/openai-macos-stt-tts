@@ -1,7 +1,7 @@
 {
-  "name": "qwen-tts-web-tester",
+  "name": "macos-stt-tts-web-tester",
   "version": "1.0.0",
-  "description": "Web interface to test Qwen3-TTS API",
+  "description": "Web interface to test macOS native STT/TTS API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

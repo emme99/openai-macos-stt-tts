@@ -20,7 +20,7 @@ function useHttp() {
         const match = envContent.match(/^USE_HTTP=(.+)$/m);
         if (match) return match[1].trim().toLowerCase() === 'true';
     } catch (_) {}
-    return true;
+    return false; // default HTTPS (matching config.py)
 }
 
 const USE_HTTP = useHttp();
