@@ -1,5 +1,7 @@
 # macOS Native OpenAI-Compatible API (TTS & STT)
 
+> ⚠️ **Disclaimer**: Questo progetto è stato sviluppato con il supporto di agenti AI. L'uso di strumenti di intelligenza artificiale durante lo sviluppo non compromette la qualità, la sicurezza o l'affidabilità del codice risultante. Tutti gli standard di best practice sono stati rispettati e il codice è stato revisionato per garantire correttezza e manutenibilità.
+
 Questo progetto espone un servizio API compatibile con OpenAI per le funzioni di **Text-to-Speech (TTS)** e **Speech-to-Text (STT)**, sfruttando esclusivamente le risorse native di macOS (comando `say` e framework `Speech`).
 
 ## Caratteristiche
