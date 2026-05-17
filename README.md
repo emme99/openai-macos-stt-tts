@@ -1,6 +1,16 @@
 # macOS Native OpenAI-Compatible API (TTS & STT)
 
-⚠️ **Disclaimer**: Questo progetto è stato sviluppato con il supporto di agenti AI. Usate con cautela.
+## ⚠️ Disclaimer
+
+**Questo progetto è stato realizzato con il supporto di agenti AI ed è fornito "così com'è" senza alcuna garanzia.**
+
+L'utilizzo di questo software è a vostra esclusiva responsabilità. Gli autori e i contributori non si assumono alcuna responsabilità per:
+- Danni diretti o indiretti causati dall'utilizzo del software
+- Perdita di dati o malfunzionamenti del sistema
+- Problemi di sicurezza o violazioni della privacy
+- Qualsiasi altro danno derivante dall'uso di questo progetto
+
+Prima di utilizzare questo software, si consiglia di testarlo in un ambiente controllato e di verificare che funzioni correttamente nel vostro contesto specifico.
 
 Questo progetto espone un servizio API compatibile con OpenAI per le funzioni di **Text-to-Speech (TTS)** e **Speech-to-Text (STT)**, sfruttando esclusivamente le risorse native di macOS (comando `say` e framework `Speech`).
 
@@ -136,3 +146,30 @@ Restituisce la lista delle voci OpenAI supportate, il mapping verso le voci macO
 ## Note Tecniche
 - Il comando `say` viene eseguito senza il parametro `-v`, delegando la scelta della voce al mapping in `config.py` (parametro `voice` dell'API) che utilizza le voci Siri/native di sistema per una qualità superiore.
 - L'audio viene normalizzato a 16kHz mono WAV prima di essere processato dal framework `Speech` per massimizzare l'accuratezza.
+
+## Licenza
+
+Questo progetto è distribuito sotto la licenza MIT. Vedi il file [LICENSE](LICENSE) per i dettagli completi.
+
+```
+MIT License
+
+Copyright (c) 2026
+
+Per concessione gratuita a chiunque ottenente una copia
+di questo software e dei file di documentazione associati (il "Software"),
+è consentito di usare, copiare, modificare, unire, pubblicare, distribuire,
+sub-licenziare, e/o vendere copie del Software, a condizione che:
+
+La suddetta nota di copyright e questa nota di permesso devono essere incluse
+in tutte le copie o parti sostanziali del Software.
+
+IL SOFTWARE È FORNITO "COM'È", SENZA GARANZIE DI ALCUN TIPO,
+ESPLICITE O IMPLICITE, INCLUSE MA NON LIMITATE ALLE GARANZIE
+DI COMMERCIABILITÀ, IDONEITÀ PER UNO SCOPO PARTICOLARE E NON VIOLAZIONE.
+
+IN NESSUN CASO GLI AUTORI O I DETENTORI DEL COPYRIGHT POTRANNO ESSERE
+RITENUTI RESPONSABILI PER RECLAMI, DANNI O ALTRA RESPONSABILITÀ,
+SIA IN UN'AZIONE DI CONTRATTO, TORTO O ALTRIMENTI, DERIVANTE DA,
+O IN CONNESSIONE CON IL SOFTWARE O L'USO O ALTRE TRANSAZIONI NEL SOFTWARE.
+```
