@@ -4,15 +4,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Server configuration
-PORT = 5050
-HOST = '0.0.0.0'
-DEBUG = True
+PORT = int(os.getenv("PORT", "5050"))
+HOST = os.getenv("HOST", "0.0.0.0")
+DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
 USE_HTTP = os.getenv("USE_HTTP", "False").lower() in ("true", "1", "yes")
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MACOS_TRANSCRIBE_BIN = os.path.join(BASE_DIR, 'macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe')
-FFMPEG_BIN = '/opt/homebrew/bin/ffmpeg'
+MACOS_TRANSCRIBE_BIN = os.getenv('MACOS_TRANSCRIBE_BIN', os.path.join(BASE_DIR, 'macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe'))
+FFMPEG_BIN = os.getenv('FFMPEG_BIN', '/opt/homebrew/bin/ffmpeg')
 TEMP_DIR = os.path.join(BASE_DIR, 'temp')
 CERT_DIR = os.path.join(BASE_DIR, 'certs')
 

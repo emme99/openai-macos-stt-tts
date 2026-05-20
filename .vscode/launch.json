@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:openai-macos-stt-tts}/macos-transcribe",
+            "name": "Debug macos-transcribe (macos-transcribe)",
+            "target": "macos-transcribe",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug macos-transcribe (macos-transcribe)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:openai-macos-stt-tts}/macos-transcribe",
+            "name": "Release macos-transcribe (macos-transcribe)",
+            "target": "macos-transcribe",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release macos-transcribe (macos-transcribe)"
+        }
+    ]
+}

@@ -19,7 +19,7 @@ This project exposes an OpenAI-compatible API service for **Text-to-Speech (TTS)
 - **OpenAI-Compatible TTS**: Endpoint `/v1/audio/speech` that uses system speech synthesis.
 - **OpenAI-to-macOS Voice Mapping**: Supports the `voice` parameters (OpenAI names: alloy, echo, nova, etc.) and `language` to select native system voices (Siri, Alice, Samantha, etc.) with configurable mapping in `config.py`.
 - **OpenAI-Compatible STT**: Endpoint `/v1/audio/transcriptions` that uses Apple's `Speech` framework through the `macos-transcribe` tool.
-- **Configurable HTTP/HTTPS**: Flask server on port 5050 with HTTPS support (self-signed certificates) or simple HTTP, via the `USE_HTTP` variable in `.env`.
+- **Configurable via `.env`**: Flask server with port, host, debug mode, HTTPS/HTTP protocol, and configurable `ffmpeg` and `macos-transcribe` binary paths via environment variables.
 - **Web Tester**: Modern web interface to quickly test both synthesis and transcription.
 - **Zero Cloud**: All processing happens locally on your Mac.
 
@@ -34,7 +34,7 @@ This project exposes an OpenAI-compatible API service for **Text-to-Speech (TTS)
 ## Project Structure
 
 - `app.py`: Main Flask server.
-- `config.py`: System configurations, paths, and mapping.
+- `config.py`: System configurations, paths, and mapping. Configurable paths are read from `.env` with hardcoded fallbacks.
 - `macos-transcribe/`: Swift project for native transcription.
 - `web-app/`: Node.js test application (Express Proxy + UI).
 
@@ -48,11 +48,26 @@ pip install -r requirements.txt
 ```
 
 ### 2. Configuration (optional)
-Create a `.env` file in the project root to control the protocol:
+Create a `.env` file in the project root to control server parameters and binary paths:
 
 ```bash
-# .env — USE_HTTP=True uses HTTP (recommended for HA), False uses HTTPS
+# Server port (default: 5050)
+PORT=5050
+
+# Server host (default: 0.0.0.0)
+HOST=0.0.0.0
+
+# Debug mode (default: True)
+DEBUG=True
+
+# USE_HTTP=True uses HTTP (recommended for HA), False uses HTTPS
 USE_HTTP=True
+
+# Path to ffmpeg binary (default: /opt/homebrew/bin/ffmpeg)
+FFMPEG_BIN=/opt/homebrew/bin/ffmpeg
+
+# Path to macos-transcribe binary (default: Swift build path)
+# MACOS_TRANSCRIBE_BIN=./macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe
 ```
 
 ### 3. Start the API Server
@@ -60,8 +75,8 @@ USE_HTTP=True
 python app.py
 ```
 
-- With `USE_HTTP=True`: server on `http://localhost:5050`
-- With `USE_HTTP=False` or omitted: server on `https://localhost:5050` with self-signed certificate (automatically generated in `certs/`)
+- With `USE_HTTP=True`: server on `http://localhost:<PORT>` (default: 5050)
+- With `USE_HTTP=False` or omitted: server on `https://localhost:<PORT>` with self-signed certificate (automatically generated in `certs/`)
 
 ### 4. Compile macos-transcribe
 
@@ -71,7 +86,7 @@ cd macos-transcribe
 swift build -c release
 cd ..
 ```
-The binary will be generated in `macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe`, a path already configured in `config.py`.
+The binary will be generated in `macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe`, which is the default path. To override it, set `MACOS_TRANSCRIBE_BIN` in `.env`.
 
 ### 5. Start the Web Tester
 ```bash
@@ -79,7 +94,7 @@ cd web-app
 npm install
 npm start
 ```
-The tester will be available on `http://localhost:3000` and respects the `USE_HTTP` configuration from `.env` (default: HTTPS if the `.env` file does not exist or `USE_HTTP` is not set).
+The tester will be available on `http://localhost:3000` and respects the `USE_HTTP` configuration from `.env` (default: HTTPS if the `.env` file does not exist or `USE_HTTP` is not set). See `.env.sample` for all available variables.
 
 ## API Usage
 

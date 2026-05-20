@@ -10,6 +10,9 @@ struct Transcribe: AsyncParsableCommand {
     @Flag(help: "Output result as JSON array.")
     var json: Bool = false
 
+    @Flag(help: "Output segments with timestamps (default: false = single string)")
+    var segments: Bool = false
+
     @Option(help: "Locale identifier for recognition (e.g., en-US, it-IT).")
     var locale: String = "en-US"
 
@@ -21,12 +24,7 @@ struct Transcribe: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        // 2. Request permission (not strict for CLI usually but good practice/required by API)
-        // With SFSpeechRecognizer, we need to ensure the locale is supported.
-        // Assuming Italian 'it-IT' or English 'en-US' based on user need, but let's default to locale of the file or user arg?
-        // For now, let's hardcode 'en-US' as source audio is likely English (yt-summary context), 
-        // but the tool is now customizable via the --locale option.
-        // NOTE: The user prompt says "sostituire la traccia audio in lingua inglese", so source is English.
+        // 2. Speech Recognizer
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
         
         guard let speechRecognizer = recognizer, speechRecognizer.isAvailable else {
@@ -34,35 +32,46 @@ struct Transcribe: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
+        // Debug info (versione compatibile)
+        printToStderr("Debug: On-device supported: \(speechRecognizer.supportsOnDeviceRecognition)")
+
         // 3. Perform Request
         do {
             let request = SFSpeechURLRecognitionRequest(url: fileURL)
             request.shouldReportPartialResults = false
-            request.requiresOnDeviceRecognition = false
+            // Forza on-device → comportamento consistente su M3 e Intel
+            request.requiresOnDeviceRecognition = true
+            
             if #available(macOS 10.15, *) {
                 request.addsPunctuation = true
             }
-            
-            // Debug info
-            // print("Debug: OnDeviceRecognition support: \(speechRecognizer.supportsOnDeviceRecognition)")
-            // print("Debug: Forcing OnDevice: false (allowing server fallback)")
 
-            // We need to await the result using a continuation because the API is completion-handler based (mostly)
-            // But verify if async/await API effectively exists or we wrap it.
             let transcription = try await transcribe(request: request, recognizer: speechRecognizer)
             
             // 4. Output
-            // 4. Output
             if json {
-                let segments = transcription.segments.map { segment in
-                     Segment(
-                        text: segment.substring,
-                        start: segment.timestamp,
-                        duration: segment.duration
-                    )
+                if self.segments {
+                    // Output con segmenti e timecode
+                    let outputSegments = transcription.segments.map { segment in
+                        Segment(
+                            text: segment.substring,
+                            start: segment.timestamp,
+                            duration: segment.duration
+                        )
+                    }
+                    let jsonData = try JSONEncoder().encode(outputSegments)
+                    print(String(data: jsonData, encoding: .utf8)!)
+                } else {
+                    // Default: singola stringa (comportamento stabile)
+                    let fullText = transcription.formattedString
+                    let singleSegment = [Segment(
+                        text: fullText,
+                        start: 0,
+                        duration: transcription.segments.last?.timestamp ?? 0 + (transcription.segments.last?.duration ?? 0)
+                    )]
+                    let jsonData = try JSONEncoder().encode(singleSegment)
+                    print(String(data: jsonData, encoding: .utf8)!)
                 }
-                let jsonData = try JSONEncoder().encode(segments)
-                print(String(data: jsonData, encoding: .utf8)!)
             } else {
                 print(transcription.formattedString)
             }
@@ -71,6 +80,12 @@ struct Transcribe: AsyncParsableCommand {
             print("Error during transcription: \(error)")
             throw ExitCode.failure
         }
+    }
+    
+    // Funzione helper per stampare su stderr in modo compatibile
+    private func printToStderr(_ message: String) {
+        let output = message + "\n"
+        FileHandle.standardError.write(output.data(using: .utf8)!)
     }
     
     private func transcribe(request: SFSpeechURLRecognitionRequest, recognizer: SFSpeechRecognizer) async throws -> SFTranscription {
