@@ -1,17 +1,17 @@
 import os
+import math
 import subprocess
 import uuid
 import ssl
 import threading
 import time
 import json
-import glob
 from flask import Flask, request, jsonify, send_file, Response
 import config
 
 app = Flask(__name__)
 
-CHUNK_DURATION = 45
+CHUNK_DURATION = 15
 
 jobs = {}
 jobs_lock = threading.Lock()
@@ -76,35 +76,30 @@ def process_long_audio(job_id):
         job = jobs[job_id].copy()
         wav_path = job['wav_path']
         language = job['language']
-        response_format = job['response_format']
+        total_chunks = job['total_chunks']
 
     try:
-        chunk_pattern = os.path.join(config.TEMP_DIR, f"{job_id}_chunk_%03d.wav")
-
-        subprocess.run([
-            config.FFMPEG_BIN, '-i', wav_path,
-            '-f', 'segment', '-segment_time', str(CHUNK_DURATION),
-            '-ar', '16000', '-ac', '1',
-            '-y', chunk_pattern
-        ], check=True, capture_output=True)
-
-        chunk_files = sorted(glob.glob(os.path.join(config.TEMP_DIR, f"{job_id}_chunk_*.wav")))
-        total = len(chunk_files)
-
-        with jobs_lock:
-            jobs[job_id]['total_chunks'] = total
-
         all_texts = []
-        for i, chunk_path in enumerate(chunk_files):
+        for i in range(total_chunks):
+            start = i * CHUNK_DURATION
+            chunk_path = os.path.join(config.TEMP_DIR, f"{job_id}_chunk_{i:03d}.wav")
+
+            subprocess.run([
+                config.FFMPEG_BIN, '-ss', str(start), '-i', wav_path,
+                '-t', str(CHUNK_DURATION),
+                '-ar', '16000', '-ac', '1',
+                '-y', chunk_path
+            ], check=True, capture_output=True)
+
             try:
                 text = run_transcription(chunk_path, language)
                 all_texts.append(text)
             except Exception as e:
-                print(f"[Chunk {i+1}/{total}] Error: {e}")
+                print(f"[Chunk {i+1}/{total_chunks}] Error: {e}")
                 all_texts.append("")
 
             with jobs_lock:
-                jobs[job_id]['progress'] = (i + 1) / total
+                jobs[job_id]['progress'] = (i + 1) / total_chunks
                 jobs[job_id]['current_chunk'] = i + 1
 
             cleanup_temp(chunk_path)
@@ -228,12 +223,13 @@ def speech_to_text():
             cleanup_temp(wav_path)
             return format_transcription_response(text, language, response_format)
         else:
+            total_chunks = math.ceil(duration / CHUNK_DURATION)
             with jobs_lock:
                 jobs[job_id] = {
                     'status': 'processing',
                     'progress': 0.0,
                     'current_chunk': 0,
-                    'total_chunks': 0,
+                    'total_chunks': total_chunks,
                     'language': language,
                     'response_format': response_format,
                     'wav_path': wav_path,
