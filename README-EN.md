@@ -19,8 +19,9 @@ This project exposes an OpenAI-compatible API service for **Text-to-Speech (TTS)
 - **OpenAI-Compatible TTS**: Endpoint `/v1/audio/speech` that uses system speech synthesis.
 - **OpenAI-to-macOS Voice Mapping**: Supports the `voice` parameters (OpenAI names: alloy, echo, nova, etc.) and `language` to select native system voices (Siri, Alice, Samantha, etc.) with configurable mapping in `config.py`.
 - **OpenAI-Compatible STT**: Endpoint `/v1/audio/transcriptions` that uses Apple's `Speech` framework through the `macos-transcribe` tool.
+- **Automatic Long Audio Chunking**: Audio files > 45 seconds are automatically split into 45s chunks, transcribed individually, and reassembled. The server returns a `job_id` (status 202) and a polling endpoint (`GET /v1/audio/transcriptions/<job_id>`) tracks per-chunk progress.
 - **Configurable via `.env`**: Flask server with port, host, debug mode, HTTPS/HTTP protocol, and configurable `ffmpeg` and `macos-transcribe` binary paths via environment variables.
-- **Web Tester**: Modern web interface to quickly test both synthesis and transcription.
+- **Web Tester**: Modern web interface with progress bar to monitor long audio transcription.
 - **Zero Cloud**: All processing happens locally on your Mac.
 
 ## Requirements
@@ -151,6 +152,58 @@ curl -k -X POST https://localhost:5050/v1/audio/transcriptions \
   -F "language=en-US"
 ```
 
+#### Long Audio Files (Automatic Chunking)
+
+For audio files longer than ~45 seconds, the server automatically switches to async mode:
+
+```bash
+# Send a long file → receive a job_id
+curl -X POST http://localhost:5050/v1/audio/transcriptions \
+  -F "file@=long_interview.mp3" \
+  -F "language=en-US"
+```
+Response (status 202):
+```json
+{"job_id": "uuid-of-the-transcription"}
+```
+
+```bash
+# Poll for status (per-chunk progress)
+curl http://localhost:5050/v1/audio/transcriptions/<job_id>
+```
+Response while processing:
+```json
+{
+  "job_id": "uuid...",
+  "status": "processing",
+  "progress": 0.6,
+  "current_chunk": 3,
+  "total_chunks": 5,
+  "result": null,
+  "error": null
+}
+```
+
+Response on completion:
+```json
+{
+  "job_id": "uuid...",
+  "status": "completed",
+  "progress": 1.0,
+  "current_chunk": 5,
+  "total_chunks": 5,
+  "result": {"text": "complete transcription..."},
+  "error": null
+}
+```
+
+How it works:
+1. The server converts audio to 16kHz mono WAV
+2. `ffmpeg` splits the file into 45-second chunks
+3. Each chunk is transcribed individually by `macos-transcribe`
+4. Results are concatenated preserving order
+5. Jobs expire automatically 5 minutes after completion
+
 ### Available Voices
 **Endpoint**: `GET /v1/voices`
 ```bash
@@ -161,6 +214,8 @@ Returns the list of supported OpenAI voices, the mapping to macOS voices, and th
 ## Technical Notes
 - The `say` command is executed without the `-v` parameter, delegating voice selection to the mapping in `config.py` (API `voice` parameter) which uses Siri/native system voices for superior quality.
 - Audio is normalized to 16kHz mono WAV before being processed by the `Speech` framework to maximize accuracy.
+- **STT Chunking**: The chunking threshold is set to 45 seconds (`CHUNK_DURATION` in `app.py`). Duration is detected via `ffprobe`. If `ffprobe` is unavailable, the file is processed directly without chunking.
+- **Polling**: Async jobs are automatically removed after 5 minutes. The `error` status is set if any chunk fails.
 
 ## License
 
