@@ -2,10 +2,19 @@ import os
 import subprocess
 import uuid
 import ssl
+import threading
+import time
+import json
+import glob
 from flask import Flask, request, jsonify, send_file, Response
 import config
 
 app = Flask(__name__)
+
+CHUNK_DURATION = 45
+
+jobs = {}
+jobs_lock = threading.Lock()
 
 def generate_self_signed_cert():
     if not os.path.exists(config.CERT_FILE) or not os.path.exists(config.KEY_FILE):
@@ -20,6 +29,109 @@ def generate_self_signed_cert():
         except subprocess.CalledProcessError as e:
             print(f"Error generating certificate: {e}")
 
+def get_ffprobe_path():
+    ffmpeg = config.FFMPEG_BIN
+    if ffmpeg.endswith('ffmpeg'):
+        return ffmpeg[:-6] + 'ffprobe'
+    return 'ffprobe'
+
+def get_audio_duration(filepath):
+    result = subprocess.run([
+        get_ffprobe_path(), '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1', filepath
+    ], capture_output=True, text=True)
+    return float(result.stdout.strip())
+
+def run_transcription(wav_path, language):
+    transcribe_cmd = [config.MACOS_TRANSCRIBE_BIN, wav_path, '--locale', language, '--json']
+    result = subprocess.run(transcribe_cmd, capture_output=True, text=True, check=True)
+    parsed = json.loads(result.stdout.strip())
+    if isinstance(parsed, list):
+        return " ".join(s.get('text', '') for s in parsed).strip()
+    return result.stdout.strip()
+
+def cleanup_temp(filepath):
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except:
+        pass
+
+def format_transcription_response(full_text, language, response_format, segments_data=None):
+    if response_format == 'json':
+        return jsonify({"text": full_text})
+    elif response_format == 'verbose_json':
+        return jsonify({
+            "task": "transcribe",
+            "language": language,
+            "text": full_text,
+            "segments": segments_data or []
+        })
+    else:
+        return Response(full_text, mimetype='text/plain')
+
+def process_long_audio(job_id):
+    with jobs_lock:
+        job = jobs[job_id].copy()
+        wav_path = job['wav_path']
+        language = job['language']
+        response_format = job['response_format']
+
+    try:
+        chunk_pattern = os.path.join(config.TEMP_DIR, f"{job_id}_chunk_%03d.wav")
+
+        subprocess.run([
+            config.FFMPEG_BIN, '-i', wav_path,
+            '-f', 'segment', '-segment_time', str(CHUNK_DURATION),
+            '-ar', '16000', '-ac', '1',
+            '-y', chunk_pattern
+        ], check=True, capture_output=True)
+
+        chunk_files = sorted(glob.glob(os.path.join(config.TEMP_DIR, f"{job_id}_chunk_*.wav")))
+        total = len(chunk_files)
+
+        with jobs_lock:
+            jobs[job_id]['total_chunks'] = total
+
+        all_texts = []
+        for i, chunk_path in enumerate(chunk_files):
+            try:
+                text = run_transcription(chunk_path, language)
+                all_texts.append(text)
+            except Exception as e:
+                print(f"[Chunk {i+1}/{total}] Error: {e}")
+                all_texts.append("")
+
+            with jobs_lock:
+                jobs[job_id]['progress'] = (i + 1) / total
+                jobs[job_id]['current_chunk'] = i + 1
+
+            cleanup_temp(chunk_path)
+
+        full_text = " ".join(t for t in all_texts if t).strip()
+
+        with jobs_lock:
+            jobs[job_id]['status'] = 'completed'
+            jobs[job_id]['result'] = {"text": full_text}
+
+    except Exception as e:
+        print(f"[STT Chunking Error] {e}")
+        import traceback
+        traceback.print_exc()
+        with jobs_lock:
+            jobs[job_id]['status'] = 'error'
+            jobs[job_id]['error'] = str(e)
+    finally:
+        cleanup_temp(wav_path)
+
+def cleanup_expired_jobs():
+    now = time.time()
+    with jobs_lock:
+        expired = [jid for jid, j in jobs.items() if now - j.get('created_at', 0) > 300]
+        for jid in expired:
+            del jobs[jid]
+
 @app.route('/v1/audio/speech', methods=['POST'])
 def text_to_speech():
     data = request.json
@@ -30,12 +142,10 @@ def text_to_speech():
     voice_name = data.get('voice', 'alloy').lower()
     response_format = data.get('response_format', 'mp3').lower()
     speed = data.get('speed', 1.0)
-    language = data.get('language') # Custom param
+    language = data.get('language')
 
-    # Map voice
     macos_voice = config.VOICE_MAPPING.get(voice_name, config.VOICE_MAPPING['default'])
     
-    # Override if language is provided and we have a mapping
     if language and language in config.LANG_VOICE_MAPPING:
         macos_voice = config.LANG_VOICE_MAPPING[language]
 
@@ -44,12 +154,8 @@ def text_to_speech():
     output_file = os.path.join(config.TEMP_DIR, f"{job_id}.{response_format}")
 
     try:
-        # 1. Run 'say' to generate AIFF
-        # Removed -v to use system default (Siri) as requested
         say_cmd = ['say', '-o', temp_aiff]
         
-        # Handle speed (OpenAI 1.0 is default, macOS 'say' uses wpm, default around 180-200)
-        # Simple linear mapping: 1.0 -> 200 wpm
         wpm = int(200 * speed)
         say_cmd.extend(['-r', str(wpm)])
         
@@ -57,11 +163,8 @@ def text_to_speech():
         
         subprocess.run(say_cmd, check=True)
 
-        # 2. Convert to target format using ffmpeg
-        # ffmpeg -i input.aiff output.mp3
         ffmpeg_cmd = [config.FFMPEG_BIN, '-i', temp_aiff, '-y', output_file]
         
-        # Handle specific formats if needed (e.g. opus/aac)
         if response_format == 'opus':
             ffmpeg_cmd.extend(['-c:a', 'libopus'])
         elif response_format == 'aac':
@@ -69,7 +172,6 @@ def text_to_speech():
         
         subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
 
-        # 3. Send file
         mime_types = {
             'mp3': 'audio/mpeg',
             'opus': 'audio/opus',
@@ -99,7 +201,6 @@ def speech_to_text():
         return jsonify({"error": "No file part"}), 400
     
     file = request.files['file']
-    model = request.form.get('model', 'whisper-1')
     language = request.form.get('language', 'en-US')
     response_format = request.form.get('response_format', 'json').lower()
 
@@ -110,57 +211,67 @@ def speech_to_text():
     try:
         file.save(input_path)
 
-        # Convert to WAV (macos-transcribe works best with standard wav)
         subprocess.run([
             config.FFMPEG_BIN, '-i', input_path, 
             '-ar', '16000', '-ac', '1', '-y', wav_path
         ], check=True, capture_output=True)
 
-        # Run macos-transcribe
-        transcribe_cmd = [config.MACOS_TRANSCRIBE_BIN, wav_path, '--locale', language]
-        if response_format in ['json', 'verbose_json']:
-            transcribe_cmd.append('--json')
-        
-        result = subprocess.run(transcribe_cmd, capture_output=True, text=True, check=True)
-        output_text = result.stdout.strip()
+        cleanup_temp(input_path)
 
-        # If macos-transcribe returned JSON, we need to process it
-        is_json_output = False
-        parsed_json = None
         try:
-            import json
-            parsed_json = json.loads(output_text)
-            is_json_output = True
-        except:
-            pass
+            duration = get_audio_duration(wav_path)
+        except Exception:
+            duration = 0
 
-        if response_format == 'json':
-            if is_json_output and isinstance(parsed_json, list):
-                full_text = " ".join([s.get('text', '') for s in parsed_json])
-                return jsonify({"text": full_text.strip()})
-            return jsonify({"text": output_text})
-        elif response_format == 'verbose_json':
-            if is_json_output and isinstance(parsed_json, list):
-                full_text = " ".join([s.get('text', '') for s in parsed_json])
-                return jsonify({
-                    "task": "transcribe",
-                    "language": language,
-                    "duration": parsed_json[-1].get('start', 0) + parsed_json[-1].get('duration', 0) if parsed_json else 0,
-                    "text": full_text.strip(),
-                    "segments": parsed_json
-                })
-            return jsonify({"text": output_text, "segments": []})
+        if duration <= CHUNK_DURATION:
+            text = run_transcription(wav_path, language)
+            cleanup_temp(wav_path)
+            return format_transcription_response(text, language, response_format)
         else:
-            if is_json_output and isinstance(parsed_json, list):
-                full_text = " ".join([s.get('text', '') for s in parsed_json])
-                return Response(full_text.strip(), mimetype='text/plain')
-            return Response(output_text, mimetype='text/plain')
+            with jobs_lock:
+                jobs[job_id] = {
+                    'status': 'processing',
+                    'progress': 0.0,
+                    'current_chunk': 0,
+                    'total_chunks': 0,
+                    'language': language,
+                    'response_format': response_format,
+                    'wav_path': wav_path,
+                    'result': None,
+                    'error': None,
+                    'created_at': time.time(),
+                }
+
+            thread = threading.Thread(target=process_long_audio, args=(job_id,))
+            thread.daemon = True
+            thread.start()
+
+            return jsonify({'job_id': job_id}), 202
 
     except Exception as e:
         print(f"[STT Error] {e}")
         import traceback
         traceback.print_exc()
+        cleanup_temp(input_path)
+        cleanup_temp(wav_path)
         return jsonify({"error": str(e)}), 500
+
+@app.route('/v1/audio/transcriptions/<job_id>', methods=['GET'])
+def transcription_status(job_id):
+    cleanup_expired_jobs()
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+        return jsonify({
+            'job_id': job_id,
+            'status': job['status'],
+            'progress': job['progress'],
+            'current_chunk': job['current_chunk'],
+            'total_chunks': job['total_chunks'],
+            'result': job['result'],
+            'error': job['error'],
+        })
 
 @app.route('/v1/voices', methods=['GET'])
 def list_voices():
@@ -171,9 +282,7 @@ def list_voices():
     })
 
 if __name__ == '__main__':
-# Check if we should use HTTP (insecure) or HTTPS (secure) based on env/config
     use_http = getattr(config, 'USE_HTTP', False)
-    # Gestione stringa booleana (se arriva da .env come stringa "true")
     if isinstance(use_http, str):
         use_http = use_http.lower() == 'true'
     

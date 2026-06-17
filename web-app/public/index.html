@@ -132,6 +132,42 @@
             margin: 0;
             color: var(--text);
         }
+
+        .progress-container {
+            margin-top: 16px;
+            display: none;
+        }
+
+        .progress-track {
+            background: #e9e9ed;
+            border-radius: 4px;
+            height: 6px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), #40b3ff);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-bar.indeterminate {
+            width: 30%;
+            animation: shimmer 1.5s ease-in-out infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        .progress-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -176,6 +212,12 @@
             </div>
             <button id="transcribeBtn">Trascrivi Audio</button>
             <div id="sttStatus" class="status"></div>
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-track">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                <div class="progress-label" id="progressText">Preparazione...</div>
+            </div>
             <div id="sttResult" class="result-box">La trascrizione apparirà qui...</div>
         </div>
     </div>

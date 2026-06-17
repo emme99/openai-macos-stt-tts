@@ -12,7 +12,6 @@ const fs = require('fs');
 const app = express();
 const PORT = 3000;
 
-// Read USE_HTTP from parent .env
 function useHttp() {
     try {
         const envPath = path.join(__dirname, '..', '.env');
@@ -20,33 +19,35 @@ function useHttp() {
         const match = envContent.match(/^USE_HTTP=(.+)$/m);
         if (match) return match[1].trim().toLowerCase() === 'true';
     } catch (_) {}
-    return false; // default HTTPS (matching config.py)
+    return false;
 }
 
 const USE_HTTP = useHttp();
 const protocol = USE_HTTP ? 'http' : 'https';
 const API_BASE_URL = `${protocol}://localhost:5050/v1/audio`;
 
-// Only use custom https agent when using HTTPS with self-signed cert
 const httpsAgent = USE_HTTP ? undefined : new https.Agent({ rejectUnauthorized: false });
 
-// Multer for file uploads
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+    dest: 'uploads/',
+    limits: { fileSize: 500 * 1024 * 1024 }
+});
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// TTS Proxy endpoint
+const axiosConfig = { httpsAgent };
+
 app.post('/api/generate', async (req, res) => {
     try {
         const { text, voice, language, response_format } = req.body;
 
-        const axiosConfig = {
+        const ttsConfig = {
             responseType: 'arraybuffer',
             headers: { 'Content-Type': 'application/json' },
+            httpsAgent,
         };
-        if (httpsAgent) axiosConfig.httpsAgent = httpsAgent;
 
         const response = await axios.post(`${API_BASE_URL}/speech`, {
             model: "macos-native",
@@ -54,7 +55,7 @@ app.post('/api/generate', async (req, res) => {
             voice: voice || 'alloy',
             language: language || 'it',
             response_format: response_format || 'mp3'
-        }, axiosConfig);
+        }, ttsConfig);
 
         const contentType = response.headers['content-type'];
         res.set('Content-Type', contentType);
@@ -65,7 +66,6 @@ app.post('/api/generate', async (req, res) => {
     }
 });
 
-// STT Proxy endpoint
 app.post('/api/transcribe', upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
@@ -81,21 +81,32 @@ app.post('/api/transcribe', upload.single('file'), async (req, res) => {
         formData.append('language', req.body.language || 'it-IT');
         formData.append('response_format', 'json');
 
-        const axiosConfig = {
+        const response = await axios.post(`${API_BASE_URL}/transcriptions`, formData, {
+            ...axiosConfig,
             headers: { ...formData.getHeaders() },
-        };
-        if (httpsAgent) axiosConfig.httpsAgent = httpsAgent;
+            validateStatus: status => status < 500,
+        });
 
-        const response = await axios.post(`${API_BASE_URL}/transcriptions`, formData, axiosConfig);
-
-        // Cleanup temp upload
         fs.unlinkSync(req.file.path);
+
+        if (response.status === 202) {
+            return res.status(202).json(response.data);
+        }
 
         res.json(response.data);
     } catch (error) {
         console.error('Error proxying to STT service:', error.message);
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         res.status(error.response?.status || 500).send(error.response?.data || 'Error communicating with STT service');
+    }
+});
+
+app.get('/api/transcribe/status/:jobId', async (req, res) => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/transcriptions/${req.params.jobId}`, axiosConfig);
+        res.json(response.data);
+    } catch (error) {
+        res.status(error.response?.status || 500).json(error.response?.data || { error: 'Error polling status' });
     }
 });
 
