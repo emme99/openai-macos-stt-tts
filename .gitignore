@@ -9,3 +9,4 @@ web-app/uploads/
 macos-transcribe/.build/
 .env
 *.mp3
+doc/
