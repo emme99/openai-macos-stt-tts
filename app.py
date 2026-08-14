@@ -8,7 +8,7 @@ import time
 import json
 import tempfile
 import re
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, Response
 import config
 
 app = Flask(__name__)
@@ -228,11 +228,13 @@ def text_to_speech():
             'pcm': 'audio/l16'
         }
         
-        return send_file(
-            output_file, 
-            mimetype=mime_types.get(response_format, 'application/octet-stream'),
-            as_attachment=False
-        )
+        mimetype = mime_types.get(response_format, 'application/octet-stream')
+
+        # Read into memory before cleanup to avoid race with send_file
+        with open(output_file, 'rb') as f:
+            audio_data = f.read()
+
+        return Response(audio_data, mimetype=mimetype)
 
     except Exception as e:
         print(f"[TTS Error] {e}")
