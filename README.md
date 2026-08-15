@@ -2,176 +2,176 @@
 
 ## ⚠️ Disclaimer
 
-**Questo progetto è stato realizzato con il supporto di agenti AI ed è fornito "così com'è" senza alcuna garanzia.**
+**This project was developed with the support of AI agents and is provided "as is" without any warranty.**
 
-L'utilizzo di questo software è a vostra esclusiva responsabilità. Gli autori e i contributori non si assumono alcuna responsabilità per:
-- Danni diretti o indiretti causati dall'utilizzo del software
-- Perdita di dati o malfunzionamenti del sistema
-- Problemi di sicurezza o violazioni della privacy
-- Qualsiasi altro danno derivante dall'uso di questo progetto
+The use of this software is entirely at your own risk. The authors and contributors assume no responsibility for:
+- Direct or indirect damages caused by the use of the software
+- Data loss or system malfunctions
+- Security issues or privacy violations
+- Any other damage resulting from the use of this project
 
-Prima di utilizzare questo software, si consiglia di testarlo in un ambiente controllato e di verificare che funzioni correttamente nel vostro contesto specifico.
+Before using this software, it is recommended to test it in a controlled environment and verify that it works correctly in your specific context.
 
-Questo progetto espone un servizio API compatibile con OpenAI per le funzioni di **Text-to-Speech (TTS)** e **Speech-to-Text (STT)**, sfruttando esclusivamente le risorse native di macOS (comando `say` e framework `Speech`).
+This project exposes an OpenAI-compatible API service for **Text-to-Speech (TTS)** and **Speech-to-Text (STT)** functions, leveraging exclusively native macOS resources (the `say` command and the `Speech` framework).
 
-## Caratteristiche
+## Features
 
-- **TTS Compatibile OpenAI**: Endpoint `/v1/audio/speech` che utilizza la sintesi vocale di sistema.
-- **Mapping Voci OpenAI-to-macOS**: Supporta i parametri `voice` (nomi OpenAI: alloy, echo, nova, ecc.) e `language` per selezionare voci di sistema native (Siri, Alice, Samantha, ecc.) con mapping configurabile in `config.py`.
-- **STT Compatibile OpenAI**: Endpoint `/v1/audio/transcriptions` che utilizza il framework `Speech` di Apple tramite il tool `macos-transcribe`.
-- **Chunking Automatico Audio Lunghi**: File audio > 15 secondi vengono automaticamente suddivisi in chunk da 15s, trascritti singolarmente e ricomposti. Il server ritorna un `job_id` (status 202) e un endpoint di polling (`GET /v1/audio/transcriptions/<job_id>`) permette di monitorare l'avanzamento chunk per chunk.
-- **Configurazione tramite `.env`**: Server Flask con porta, host, modalità debug, protocollo HTTPS/HTTP, percorsi di `ffmpeg` e `macos-transcribe` configurabili tramite variabili d'ambiente.
-- **Web Tester**: Interfaccia web moderna con progress bar per monitorare la trascrizione di file audio lunghi.
-- **Zero Cloud**: Tutto il processamento avviene localmente sul tuo Mac.
+- **OpenAI-Compatible TTS**: Endpoint `/v1/audio/speech` that uses system speech synthesis.
+- **OpenAI-to-macOS Voice Mapping**: Supports the `voice` parameters (OpenAI names: alloy, echo, nova, etc.) and `language` to select native system voices (Siri, Alice, Samantha, etc.) with configurable mapping in `config.py`.
+- **OpenAI-Compatible STT**: Endpoint `/v1/audio/transcriptions` that uses Apple's `Speech` framework through the `macos-transcribe` tool.
+- **Automatic Long Audio Chunking**: Audio files > 15 seconds are automatically split into 15s chunks, transcribed individually, and reassembled. The server returns a `job_id` (status 202) and a polling endpoint (`GET /v1/audio/transcriptions/<job_id>`) tracks per-chunk progress.
+- **Configurable via `.env`**: Flask server with port, host, debug mode, HTTPS/HTTP protocol, and configurable `ffmpeg` and `macos-transcribe` binary paths via environment variables.
+- **Web Tester**: Modern web interface with progress bar to monitor long audio transcription.
+- **Zero Cloud**: All processing happens locally on your Mac.
 
-## Requisiti
+## Requirements
 
-- macOS (testato su macOS 14+ Sonoma)
+- macOS (tested on macOS 14+ Sonoma)
 - Python 3.8+
-- `ffmpeg` installato (es. via Homebrew: `brew install ffmpeg`)
+- `ffmpeg` installed (e.g., via Homebrew: `brew install ffmpeg`)
 - Xcode Command Line Tools (`xcode-select --install`)
-- Tool `macos-transcribe`: va compilato (vedi sezione dedicata sotto)
+- `macos-transcribe` tool: must be compiled (see dedicated section below)
 
-## Struttura del Progetto
+## Project Structure
 
-- `app.py`: Server Flask principale.
-- `config.py`: Configurazioni di sistema, percorsi e mapping. I percorsi leggibili da `.env` hanno fallback hardcoded.
-- `macos-transcribe/`: Progetto Swift per la trascrizione nativa.
-- `web-app/`: Applicazione Node.js di test (Proxy Express + UI).
+- `app.py`: Main Flask server.
+- `config.py`: System configurations, paths, and mapping. Configurable paths are read from `.env` with hardcoded fallbacks.
+- `macos-transcribe/`: Swift project for native transcription.
+- `web-app/`: Node.js test application (Express Proxy + UI).
 
-## Installazione e Avvio
+## Installation and Startup
 
-### 1. Preparazione ambiente Python
+### 1. Python Environment Setup
 ```bash
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configurazione (opzionale)
-Crea un file `.env` nella root del progetto per controllare i parametri del server e i percorsi dei binari:
+### 2. Configuration (optional)
+Create a `.env` file in the project root to control server parameters and binary paths:
 
 ```bash
-# Porta del server (default: 5050)
+# Server port (default: 5050)
 PORT=5050
 
-# Host del server (default: 0.0.0.0)
+# Server host (default: 0.0.0.0)
 HOST=0.0.0.0
 
-# Modalità debug (default: True)
+# Debug mode (default: True)
 DEBUG=True
 
-# USE_HTTP=True usa HTTP (consigliato per HA), False usa HTTPS
+# USE_HTTP=True uses HTTP (recommended for HA), False uses HTTPS
 USE_HTTP=True
 
-# Percorso del binario ffmpeg (default: /opt/homebrew/bin/ffmpeg)
+# Path to ffmpeg binary (default: /opt/homebrew/bin/ffmpeg)
 FFMPEG_BIN=/opt/homebrew/bin/ffmpeg
 
-# Percorso del binario macos-transcribe (default: percorso build Swift)
+# Path to macos-transcribe binary (default: Swift build path)
 # MACOS_TRANSCRIBE_BIN=./macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe
 ```
 
-### 3. Avvio del Server API
+### 3. Start the API Server
 ```bash
 python app.py
 ```
 
-- Con `USE_HTTP=True`: server su `http://localhost:<PORT>` (default: 5050)
-- Con `USE_HTTP=False` o omesso: server su `https://localhost:<PORT>` con certificato self-signed (generato automaticamente in `certs/`)
+- With `USE_HTTP=True`: server on `http://localhost:<PORT>` (default: 5050)
+- With `USE_HTTP=False` or omitted: server on `https://localhost:<PORT>` with self-signed certificate (automatically generated in `certs/`)
 
-### 4. Compilazione di macos-transcribe
+### 4. Compile macos-transcribe
 
-Il tool di trascrizione nativo va compilato con Swift:
+The native transcription tool must be compiled with Swift:
 ```bash
 cd macos-transcribe
 swift build -c release
 cd ..
 ```
-Il binario verrà generato in `macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe`, che è il percorso di default. Per sovrascriverlo, imposta `MACOS_TRANSCRIBE_BIN` in `.env`.
+The binary will be generated in `macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe`, which is the default path. To override it, set `MACOS_TRANSCRIBE_BIN` in `.env`.
 
-### 5. Avvio del Web Tester
+### 5. Start the Web Tester
 ```bash
 cd web-app
 npm install
 npm start
 ```
-Il tester sarà disponibile su `http://localhost:3000` e rispetta la configurazione `USE_HTTP` del `.env` (default: HTTPS se il file `.env` non esiste o `USE_HTTP` non è impostato). Consulta `.env.sample` per tutte le variabili disponibili.
+The tester will be available on `http://localhost:3000` and respects the `USE_HTTP` configuration from `.env` (default: HTTPS if the `.env` file does not exist or `USE_HTTP` is not set). See `.env.sample` for all available variables.
 
-## Utilizzo API
+## API Usage
 
 ### Text-to-Speech (TTS)
 **Endpoint**: `POST /v1/audio/speech`
 
-Parametri supportati:
-- `input` (stringa, obbligatorio) — testo da sintetizzare
-- `voice` (stringa, default `"alloy"`) — voce OpenAI mappata su voci macOS (alloy, echo, nova, onyx, shimmer, fable)
-- `language` (stringa, opzionale) — sovrascrive la voce in base alla lingua (es. `"it"`, `"en"`, `"fr"`)
-- `speed` (float, default `1.0`) — velocità di lettura
-- `response_format` (stringa, default `"mp3"`) — formato audio: mp3, opus, aac, flac, wav, pcm
+Supported parameters:
+- `input` (string, required) — text to synthesize
+- `voice` (string, default `"alloy"`) — OpenAI voice mapped to macOS voices (alloy, echo, nova, onyx, shimmer, fable)
+- `language` (string, optional) — overrides the voice based on language (e.g., `"it"`, `"en"`, `"fr"`)
+- `speed` (float, default `1.0`) — reading speed
+- `response_format` (string, default `"mp3"`) — audio format: mp3, opus, aac, flac, wav, pcm
 
 ```bash
-# Base - solo input:
+# Base - input only:
 curl -X POST http://localhost:5050/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"input": "Ciao, sono il tuo Mac che parla!"}' \
+  -d '{"input": "Hello, I am your Mac speaking!"}' \
   --output audio.mp3
 
-# Con voce e lingua specifici:
+# With specific voice and language:
 curl -X POST http://localhost:5050/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{"input": "Hello, I am your Mac speaking!","voice": "nova","language": "en","speed": 1.2}' \
   --output audio.mp3
 
-# Con HTTPS (aggiungi -k per certificato self-signed):
+# With HTTPS (add -k for self-signed certificate):
 curl -k -X POST https://localhost:5050/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"input": "Ciao, sono il tuo Mac che parla!","speed": 1.0}' \
+  -d '{"input": "Hello, I am your Mac speaking!","speed": 1.0}' \
   --output audio.mp3
 ```
 
 ### Speech-to-Text (STT)
 **Endpoint**: `POST /v1/audio/transcriptions`
 
-Parametri supportati:
-- `file` (file, obbligatorio) — file audio da trascrivere
-- `model` (stringa, default `"whisper-1"`) — compatibile OpenAI (valore a scopo identificativo)
-- `language` (stringa, default `"en-US"`) — lingua del parlato (es. `"it-IT"`, `"fr-FR"`, `"de-DE"`)
-- `response_format` (stringa, default `"json"`) — formato risposta: json, verbose_json, text
+Supported parameters:
+- `file` (file, required) — audio file to transcribe
+- `model` (string, default `"whisper-1"`) — OpenAI-compatible (identifier value only)
+- `language` (string, default `"en-US"`) — spoken language (e.g., `"it-IT"`, `"fr-FR"`, `"de-DE"`)
+- `response_format` (string, default `"json"`) — response format: json, verbose_json, text
 
 ```bash
-# Base - file e lingua esplicita:
+# Base - file and explicit language:
 curl -X POST http://localhost:5050/v1/audio/transcriptions \
   -F "file=@audio.mp3" \
   -F "model=whisper-1" \
   -F "language=it-IT"
 
-# Con HTTPS (aggiungi -k per certificato self-signed):
+# With HTTPS (add -k for self-signed certificate):
 curl -k -X POST https://localhost:5050/v1/audio/transcriptions \
   -F "file=@audio.mp3" \
   -F "model=whisper-1" \
   -F "language=en-US"
 ```
 
-#### File Audio Lunghi (Chunking Automatico)
+#### Long Audio Files (Automatic Chunking)
 
-Per file audio di durata superiore a ~15 secondi, il server attiva automaticamente la modalità asincrona:
+For audio files longer than ~15 seconds, the server automatically switches to async mode:
 
 ```bash
-# Invia un file lungo → ricevi un job_id
+# Send a long file → receive a job_id
 curl -X POST http://localhost:5050/v1/audio/transcriptions \
-  -F "file=@intervista_lunga.mp3" \
-  -F "language=it-IT"
+  -F "file@=long_interview.mp3" \
+  -F "language=en-US"
 ```
-Risposta (status 202):
+Response (status 202):
 ```json
-{"job_id": "uuid-della-transcrizione"}
+{"job_id": "uuid-of-the-transcription"}
 ```
 
 ```bash
-# Polling dello stato (progresso chunk per chunk)
+# Poll for status (per-chunk progress)
 curl http://localhost:5050/v1/audio/transcriptions/<job_id>
 ```
-Risposta durante l'elaborazione:
+Response while processing:
 ```json
 {
   "job_id": "uuid...",
@@ -184,7 +184,7 @@ Risposta durante l'elaborazione:
 }
 ```
 
-Risposta a completamento:
+Response on completion:
 ```json
 {
   "job_id": "uuid...",
@@ -192,54 +192,54 @@ Risposta a completamento:
   "progress": 1.0,
   "current_chunk": 5,
   "total_chunks": 5,
-  "result": {"text": "trascrizione completa..."},
+  "result": {"text": "complete transcription..."},
   "error": null
 }
 ```
 
-Il meccanismo:
-1. Il server converte l'audio in WAV 16kHz mono
-2. `ffmpeg` estrae chunk di 15 secondi con indici progressivi
-3. Ogni chunk viene trascritto individualmente da `macos-transcribe`
-4. I testi vengono concatenati preservando l'ordine
-5. Il job scade automaticamente dopo 5 minuti dal completamento
+How it works:
+1. The server converts audio to 16kHz mono WAV
+2. `ffmpeg` extracts 15-second chunks by progressive index
+3. Each chunk is transcribed individually by `macos-transcribe`
+4. Results are concatenated preserving order
+5. Jobs expire automatically 5 minutes after completion
 
-### Voci Disponibili
+### Available Voices
 **Endpoint**: `GET /v1/voices`
 ```bash
 curl http://localhost:5050/v1/voices
 ```
-Restituisce la lista delle voci OpenAI supportate, il mapping verso le voci macOS e il mapping personalizzato per lingua.
+Returns the list of supported OpenAI voices, the mapping to macOS voices, and the custom language mapping.
 
-## Note Tecniche
-- Il comando `say` viene eseguito senza il parametro `-v`, delegando la scelta della voce al mapping in `config.py` (parametro `voice` dell'API) che utilizza le voci Siri/native di sistema per una qualità superiore.
-- L'audio viene normalizzato a 16kHz mono WAV prima di essere processato dal framework `Speech` per massimizzare l'accuratezza.
-- **Chunking STT**: La soglia di chunking è impostata a 15 secondi (`CHUNK_DURATION` in `app.py`). Apple's `SFSpeechRecognizer` ha un limite empirico di ~16 secondi per chunk (oltre questo valore l'inizio dell'audio viene perso); 15 secondi garantiscono margine di sicurezza. La durata viene rilevata tramite `ffprobe`. Se `ffprobe` non è disponibile, il file viene processato direttamente senza chunking.
-- **Polling**: I job asincroni vengono rimossi automaticamente dopo 5 minuti. Lo stato `error` viene impostato in caso di fallimento in uno qualsiasi dei chunk.
+## Technical Notes
+- The `say` command is executed without the `-v` parameter, delegating voice selection to the mapping in `config.py` (API `voice` parameter) which uses Siri/native system voices for superior quality.
+- Audio is normalized to 16kHz mono WAV before being processed by the `Speech` framework to maximize accuracy.
+- **STT Chunking**: The chunking threshold is set to 15 seconds (`CHUNK_DURATION` in `app.py`). Apple's `SFSpeechRecognizer` has an empirical limit of ~16 seconds per chunk (beyond this, the beginning of audio is dropped); 15 seconds provide a safety margin. Duration is detected via `ffprobe`. If `ffprobe` is unavailable, the file is processed directly without chunking.
+- **Polling**: Async jobs are automatically removed after 5 minutes. The `error` status is set if any chunk fails.
 
-## Licenza
+## License
 
-Questo progetto è distribuito sotto la licenza MIT. Vedi il file [LICENSE](LICENSE) per i dettagli completi.
+This project is distributed under the MIT License. See the [LICENSE](LICENSE) file for complete details.
 
 ```
 MIT License
 
 Copyright (c) 2026
 
-Per concessione gratuita a chiunque ottenente una copia
-di questo software e dei file di documentazione associati (il "Software"),
-è consentito di usare, copiare, modificare, unire, pubblicare, distribuire,
-sub-licenziare, e/o vendere copie del Software, a condizione che:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, subject to the following conditions:
 
-La suddetta nota di copyright e questa nota di permesso devono essere incluse
-in tutte le copie o parti sostanziali del Software.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-IL SOFTWARE È FORNITO "COM'È", SENZA GARANZIE DI ALCUN TIPO,
-ESPLICITE O IMPLICITE, INCLUSE MA NON LIMITATE ALLE GARANZIE
-DI COMMERCIABILITÀ, IDONEITÀ PER UNO SCOPO PARTICOLARE E NON VIOLAZIONE.
-
-IN NESSUN CASO GLI AUTORI O I DETENTORI DEL COPYRIGHT POTRANNO ESSERE
-RITENUTI RESPONSABILI PER RECLAMI, DANNI O ALTRA RESPONSABILITÀ,
-SIA IN UN'AZIONE DI CONTRATTO, TORTO O ALTRIMENTI, DERIVANTE DA,
-O IN CONNESSIONE CON IL SOFTWARE O L'USO O ALTRE TRANSAZIONI NEL SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
