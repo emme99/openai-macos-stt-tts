@@ -110,6 +110,19 @@ app.get('/api/transcribe/status/:jobId', async (req, res) => {
     }
 });
 
+app.get('/api/engine-info', async (req, res) => {
+    try {
+        const response = await axios.get(`${protocol}://localhost:5050/v1/voices`, { httpsAgent });
+        res.json(response.data.stt_info || {});
+    } catch (error) {
+        res.json({ 
+            error: 'Unable to fetch engine info',
+            engine: 'unknown',
+            macos_version: 'unknown'
+        });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Web tester running at http://localhost:${PORT}`);
 });

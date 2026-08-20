@@ -19,6 +19,9 @@ This project exposes an OpenAI-compatible API service for **Text-to-Speech (TTS)
 - **OpenAI-Compatible TTS**: Endpoint `/v1/audio/speech` that uses system speech synthesis.
 - **OpenAI-to-macOS Voice Mapping**: Supports the `voice` parameters (OpenAI names: alloy, echo, nova, etc.) and `language` to select native system voices (Siri, Alice, Samantha, etc.) with configurable mapping in `config.py`.
 - **OpenAI-Compatible STT**: Endpoint `/v1/audio/transcriptions` that uses Apple's `Speech` framework through the `macos-transcribe` tool.
+- **Dual STT Engines**:
+  - **Legacy Engine** (`SFSpeechRecognizer`): Available on macOS 14+ with automatic 15s chunking for long files
+  - **Analyzer Engine** (`SpeechAnalyzer`): Available on macOS 26 Tahoe+ with improved quality and native long-form audio support (no forced chunking)
 - **Automatic Long Audio Chunking**: Audio files > 15 seconds are automatically split into 15s chunks, transcribed individually, and reassembled. The server returns a `job_id` (status 202) and a polling endpoint (`GET /v1/audio/transcriptions/<job_id>`) tracks per-chunk progress.
 - **Configurable via `.env`**: Flask server with port, host, debug mode, HTTPS/HTTP protocol, and configurable `ffmpeg` and `macos-transcribe` binary paths via environment variables.
 - **Web Tester**: Modern web interface with progress bar to monitor long audio transcription.
@@ -31,6 +34,30 @@ This project exposes an OpenAI-compatible API service for **Text-to-Speech (TTS)
 - `ffmpeg` installed (e.g., via Homebrew: `brew install ffmpeg`)
 - Xcode Command Line Tools (`xcode-select --install`)
 - `macos-transcribe` tool: must be compiled (see dedicated section below)
+- **For SpeechAnalyzer engine**: macOS 26 Tahoe or later
+
+## STT Engine Selection
+
+The server can automatically choose the best available STT engine based on your macOS version, or you can explicitly configure it:
+
+| Engine | macOS Version | Strengths | Chunking |
+|--------|---------------|-----------|----------|
+| **legacy** (SFSpeechRecognizer) | 14+ | Compatible, stable, established | Auto 15s chunking |
+| **analyzer** (SpeechAnalyzer) | 26+ | Better quality, long-form native support | Optional |
+
+Configuration via `.env`:
+```bash
+# Automatic selection based on macOS version (recommended)
+STT_ENGINE=auto
+
+# Force legacy engine (SFSpeechRecognizer)
+STT_ENGINE=legacy
+
+# Force analyzer engine (SpeechAnalyzer, requires macOS 26+)
+STT_ENGINE=analyzer
+```
+
+Default: `STT_ENGINE=auto` (automatically selects the best available engine)
 
 ## Project Structure
 
@@ -38,6 +65,42 @@ This project exposes an OpenAI-compatible API service for **Text-to-Speech (TTS)
 - `config.py`: System configurations, paths, and mapping. Configurable paths are read from `.env` with hardcoded fallbacks.
 - `macos-transcribe/`: Swift project for native transcription.
 - `web-app/`: Node.js test application (Express Proxy + UI).
+
+## macOS Speech Recognition Authorization
+
+Both STT engines (legacy and analyzer) depend on Apple's Speech Recognition framework, which requires explicit user authorization for each language used.
+
+### Initial Setup
+1. **First run of transcription** may prompt you to allow speech recognition:
+  - Allow the prompt by clicking "OK" in the system dialog
+  - If you don't see a prompt, continue to the next step
+
+2. **Manual Authorization** (if needed):
+  - Open **System Preferences** → **Privacy & Security** → **Speech Recognition**
+  - Locate your Python environment or terminal app in the list
+  - Ensure the toggle is enabled (green) for it to use Speech Recognition
+
+3. **Troubleshooting Authorization Issues**:
+  - If you see "Speech recognizer not available for [language]":
+    - Go to **System Settings** → **General** → **Language & Region**
+    - Add the desired language (e.g., Italian) to your preferred languages
+    - Restart the application
+  - If authorization still fails after enabling in Privacy & Security:
+    - Restart your Mac
+    - Delete the Speech Recognition cache: `rm -rf ~/Library/SpeechRecognition`
+    - Retry the transcription
+
+### Supported Languages
+Speech Recognition language support depends on your system language settings. Commonly supported languages include:
+- English (en-US, en-GB)
+- Spanish (es-ES)
+- French (fr-FR)
+- Italian (it-IT)
+- German (de-DE)
+
+### Default Behavior
+- If authorization is denied or language unavailable: System returns a descriptive error message
+- Both engines have automatic fallback: If the selected engine fails, the system attempts the alternative engine
 
 ## Installation and Startup
 
@@ -64,11 +127,17 @@ DEBUG=True
 # USE_HTTP=True uses HTTP (recommended for HA), False uses HTTPS
 USE_HTTP=True
 
+# STT Engine: auto, legacy, analyzer (default: auto)
+STT_ENGINE=auto
+
 # Path to ffmpeg binary (default: /opt/homebrew/bin/ffmpeg)
 FFMPEG_BIN=/opt/homebrew/bin/ffmpeg
 
 # Path to macos-transcribe binary (default: Swift build path)
 # MACOS_TRANSCRIBE_BIN=./macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe
+
+# Path to macos-transcribe-analyzer binary (default: Swift build path)
+# MACOS_TRANSCRIBE_ANALYZER_BIN=./macos-transcribe-analyzer/.build/arm64-apple-macosx/release/macos-transcribe-analyzer
 ```
 
 ### 3. Start the API Server
@@ -79,15 +148,25 @@ python app.py
 - With `USE_HTTP=True`: server on `http://localhost:<PORT>` (default: 5050)
 - With `USE_HTTP=False` or omitted: server on `https://localhost:<PORT>` with self-signed certificate (automatically generated in `certs/`)
 
-### 4. Compile macos-transcribe
+### 4. Compile STT Tools
 
-The native transcription tool must be compiled with Swift:
+#### Legacy Tool (macos-transcribe)
+The native transcription tool must be compiled with Swift. Available on macOS 14+:
 ```bash
 cd macos-transcribe
 swift build -c release
 cd ..
 ```
 The binary will be generated in `macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe`, which is the default path. To override it, set `MACOS_TRANSCRIBE_BIN` in `.env`.
+
+#### Analyzer Tool (macos-transcribe-analyzer)
+**Optional** — Only needed if you want to use the SpeechAnalyzer engine on macOS 26 Tahoe or later:
+```bash
+cd macos-transcribe-analyzer
+swift build -c release
+cd ..
+```
+The binary will be generated in `macos-transcribe-analyzer/.build/arm64-apple-macosx/release/macos-transcribe-analyzer`. To use it, set `STT_ENGINE=analyzer` in `.env`.
 
 ### 5. Start the Web Tester
 ```bash
@@ -96,6 +175,98 @@ npm install
 npm start
 ```
 The tester will be available on `http://localhost:3000` and respects the `USE_HTTP` configuration from `.env` (default: HTTPS if the `.env` file does not exist or `USE_HTTP` is not set). See `.env.sample` for all available variables.
+
+### 6. Enable Speech Recognition (Important!)
+
+**Before you can transcribe audio**, you must authorize Speech Recognition on your Mac:
+
+**Quick Setup Script** (recommended):
+```bash
+./setup-speech-recognition.sh
+```
+This script provides:
+- Clear authorization instructions
+- Interactive System Settings navigation
+- Links to troubleshooting guides
+
+**Test STT Engines** (after setup):
+```bash
+./test-stt-engines.sh
+```
+This script tests:
+- Binary availability
+- Language support on your system
+- Diagnosis of Speech Recognition issues
+
+**Manual Setup** (if scripts don't work):
+1. Open **System Settings** → **Privacy & Security**
+2. Find **Speech Recognition** in the list
+3. Locate Terminal or Python in the allowed apps
+4. Toggle the switch ON (green)
+5. Go to **System Settings** → **General** → **Language & Region**
+6. Add your desired language(s) to the list
+7. Restart Terminal/IDE and retry transcription
+## ⚠️ Important Notes on Speech Recognition Authorization
+
+
+### Why Authorization is Required
+
+Both STT engines (legacy and analyzer) depend on Apple's Speech Recognition framework (`Speech.framework`), which is a system resource that requires explicit user authorization. This is similar to how apps must request access to Camera, Microphone, or Contacts.
+
+### What Happens Without Authorization
+
+If you try to transcribe audio without granting authorization:
+
+1. **Without Speech Recognition added to allowed apps:**
+  - Error: `Speech recognizer not available for [language]`
+  - **Solution**: Go to **System Settings** → **Privacy & Security** → **Speech Recognition** and toggle your Python environment/Terminal to ON
+
+2. **Without the language installed:**
+  - Error: `Speech recognizer not available for [language]`
+  - **Solution**: Add the language in **System Settings** → **General** → **Language & Region**
+
+3. **Analyzer engine fails (exit code -6):**
+  - System automatically falls back to legacy engine
+  - If legacy also fails, the API returns the error message
+  - No further fallback available
+
+### Automatic Fallback Mechanism
+
+The server implements intelligent fallback to maximize reliability:
+
+```
+User Request
+  ↓
+Try Analyzer Engine (if macOS 26+)
+  ↓ (if fails with auth or unavailable error)
+Try Legacy Engine (macOS 14+)
+  ↓ (if also fails)
+Return Error Message
+```
+
+### Testing Authorization Status
+
+Use the provided test script to check if Speech Recognition is properly authorized:
+
+```bash
+./test-stt-engines.sh
+```
+
+Expected output for properly authorized system:
+```
+Testing en-US... ✓ Available
+Testing it-IT... ✓ Available
+... (languages based on your system settings)
+```
+
+### Troubleshooting Checklist
+
+- [ ] Open **System Settings** → **Privacy & Security** → **Speech Recognition**
+- [ ] Is Terminal/Python in the allowed list?
+- [ ] Is the toggle for Terminal/Python ON (green)?
+- [ ] Do you have at least one language installed in **System Settings** → **General** → **Language & Region**?
+- [ ] Did you restart Terminal/IDE after changing settings?
+- [ ] Try deleting cache: `rm -rf ~/Library/SpeechRecognition` and restart
 
 ## API Usage
 
@@ -214,8 +385,12 @@ Returns the list of supported OpenAI voices, the mapping to macOS voices, and th
 ## Technical Notes
 - The `say` command is executed without the `-v` parameter, delegating voice selection to the mapping in `config.py` (API `voice` parameter) which uses Siri/native system voices for superior quality.
 - Audio is normalized to 16kHz mono WAV before being processed by the `Speech` framework to maximize accuracy.
-- **STT Chunking**: The chunking threshold is set to 15 seconds (`CHUNK_DURATION` in `app.py`). Apple's `SFSpeechRecognizer` has an empirical limit of ~16 seconds per chunk (beyond this, the beginning of audio is dropped); 15 seconds provide a safety margin. Duration is detected via `ffprobe`. If `ffprobe` is unavailable, the file is processed directly without chunking.
+- **STT Engines**:
+  - **Legacy (SFSpeechRecognizer)**: Automatic 15s chunking. Empirical limit of ~16 seconds per chunk; 15 seconds provides a safety margin.
+  - **Analyzer (SpeechAnalyzer)**: Native long-form audio support. Processes entire audio files without forced chunking on macOS 26+.
+- **STT Chunking**: The chunking threshold is set to 15 seconds (`CHUNK_DURATION` in `app.py`) for the legacy engine. Duration is detected via `ffprobe`. If `ffprobe` is unavailable, the file is processed directly without chunking.
 - **Polling**: Async jobs are automatically removed after 5 minutes. The `error` status is set if any chunk fails.
+- **Engine Detection**: The server automatically detects the macOS version and selects the appropriate engine. Use `GET /v1/voices` to check which engine is currently active.
 
 ## License
 

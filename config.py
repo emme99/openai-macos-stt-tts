@@ -12,9 +12,16 @@ USE_HTTP = os.getenv("USE_HTTP", "False").lower() in ("true", "1", "yes")
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MACOS_TRANSCRIBE_BIN = os.getenv('MACOS_TRANSCRIBE_BIN', os.path.join(BASE_DIR, 'macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe'))
+MACOS_TRANSCRIBE_ANALYZER_BIN = os.getenv('MACOS_TRANSCRIBE_ANALYZER_BIN', os.path.join(BASE_DIR, 'macos-transcribe-analyzer/.build/arm64-apple-macosx/release/macos-transcribe-analyzer'))
 FFMPEG_BIN = os.getenv('FFMPEG_BIN', '/opt/homebrew/bin/ffmpeg')
 TEMP_DIR = os.path.join(BASE_DIR, 'temp')
 CERT_DIR = os.path.join(BASE_DIR, 'certs')
+
+# STT Engine Configuration
+# Options: "legacy" (SFSpeechRecognizer), "analyzer" (SpeechAnalyzer), "auto" (choose based on macOS version)
+STT_ENGINE = os.getenv('STT_ENGINE', 'auto')
+# Minimum macOS version for analyzer engine (macOS 26 Tahoe = 14.x)
+ANALYZER_MIN_MACOS_VERSION = (14, 0)
 
 # SSL Configuration
 CERT_FILE = os.path.join(CERT_DIR, 'cert.pem')

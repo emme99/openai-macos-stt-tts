@@ -168,6 +168,47 @@
             color: var(--text-secondary);
             margin-top: 4px;
         }
+
+        .engine-info {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, rgba(0, 113, 227, 0.1), rgba(64, 179, 255, 0.1));
+            border: 1px solid rgba(0, 113, 227, 0.2);
+            border-radius: var(--radius);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .engine-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--primary);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .engine-badge.analyzer { background: linear-gradient(135deg, #00c853, #00b84d); }
+        .engine-badge.legacy { background: #1f6feb; }
+
+        .placeholder-warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #856404;
+            display: none;
+        }
+
+        .placeholder-warning.show { display: block; }
     </style>
 </head>
 <body>
@@ -175,6 +216,17 @@
         <div class="logo-header">
             <h1>macOS AI Toolkit</h1>
             <p style="color: var(--text-secondary)">OpenAI-Compatible API powered by Native Resources</p>
+        </div>
+
+        <!-- Engine Info -->
+        <div class="engine-info">
+            <div>
+                <span style="font-size: 12px; color: var(--text-secondary);">STT Engine:</span>
+                <span id="engineName" class="engine-badge legacy" style="margin-left: 8px;">Loading...</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-secondary);">
+                <span id="macOSVersion">macOS version: —</span>
+            </div>
         </div>
 
         <!-- TTS Section -->
@@ -219,6 +271,9 @@
                 <div class="progress-label" id="progressText">Preparazione...</div>
             </div>
             <div id="sttResult" class="result-box">La trascrizione apparirà qui...</div>
+            <div id="placeholderWarning" class="placeholder-warning">
+                ⚠️ <strong>Trascrizione Placeholder:</strong> Questo risultato è un placeholder. L'implementazione completa dell'API SpeechAnalyzer è in sviluppo.
+            </div>
         </div>
     </div>
     <script src="script.js"></script>

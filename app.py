@@ -8,6 +8,7 @@ import time
 import json
 import tempfile
 import re
+import platform
 from flask import Flask, request, jsonify, Response
 import config
 
@@ -26,6 +27,60 @@ semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
 
 TTS_FORMATS = {'mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'}
 STT_FORMATS = {'json', 'text', 'verbose_json', 'srt', 'vtt'}
+
+# Detect macOS version and select STT engine
+_MACOS_VERSION = None
+_SELECTED_ENGINE = None
+
+def get_macos_version():
+    """Returns tuple (major, minor) for macOS version."""
+    global _MACOS_VERSION
+    if _MACOS_VERSION is not None:
+        return _MACOS_VERSION
+    
+    try:
+        version_str = platform.mac_ver()[0]
+        parts = version_str.split('.')
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        _MACOS_VERSION = (major, minor)
+    except Exception:
+        _MACOS_VERSION = (0, 0)
+    return _MACOS_VERSION
+
+def get_stt_engine():
+    """Returns the selected STT engine: 'legacy', 'analyzer', or 'auto'."""
+    global _SELECTED_ENGINE
+    if _SELECTED_ENGINE is not None:
+        return _SELECTED_ENGINE
+    
+    config_engine = getattr(config, 'STT_ENGINE', 'auto').lower()
+    
+    if config_engine in ('legacy', 'analyzer'):
+        _SELECTED_ENGINE = config_engine
+    elif config_engine == 'auto':
+        macos_version = get_macos_version()
+        min_version = getattr(config, 'ANALYZER_MIN_MACOS_VERSION', (14, 0))
+        
+        if macos_version >= min_version:
+            _SELECTED_ENGINE = 'analyzer'
+        else:
+            _SELECTED_ENGINE = 'legacy'
+    else:
+        _SELECTED_ENGINE = 'legacy'
+    
+    engine = _SELECTED_ENGINE
+    print(f"[STT Engine] Selected: {engine} (macOS {get_macos_version()})")
+    return engine
+
+def get_transcribe_binary():
+    """Returns the path to the transcription binary based on selected engine."""
+    engine = get_stt_engine()
+    
+    if engine == 'analyzer':
+        return getattr(config, 'MACOS_TRANSCRIBE_ANALYZER_BIN', config.MACOS_TRANSCRIBE_BIN)
+    else:
+        return config.MACOS_TRANSCRIBE_BIN
 
 def generate_self_signed_cert():
     if not os.path.exists(config.CERT_FILE) or not os.path.exists(config.KEY_FILE):
@@ -57,19 +112,63 @@ def get_audio_duration(filepath):
     return float(result.stdout.strip())
 
 def run_transcription(wav_path, language):
-    transcribe_cmd = [config.MACOS_TRANSCRIBE_BIN, wav_path, '--locale', language, '--json']
-    result = subprocess.run(transcribe_cmd, capture_output=True, text=True, check=True, timeout=SUBPROCESS_TIMEOUT)
+    engine = get_stt_engine()
+    transcribe_bin = get_transcribe_binary()
+    
+    # Verify binary exists
+    if not os.path.exists(transcribe_bin):
+        raise RuntimeError(f"{engine} transcription binary not found: {transcribe_bin}")
+    
+    transcribe_cmd = [transcribe_bin, wav_path, '--locale', language, '--json']
+    result = subprocess.run(transcribe_cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+    
+    # Check for authorization error (exit code 3 or -6 SIGABRT) and fallback to legacy if analyzer fails
+    authorization_error = (
+        result.returncode == 3 or 
+        result.returncode == -6 or 
+        'authorization' in result.stderr.lower()
+    )
+    
+    recognizer_unavailable = 'not available' in result.stderr.lower() or 'not supported' in result.stderr.lower()
+    
+    if result.returncode != 0:
+        if engine == 'analyzer' and (authorization_error or recognizer_unavailable):
+            print(f"[STT Engine] Analyzer unavailable, falling back to legacy engine")
+            # Fallback to legacy engine
+            legacy_bin = config.MACOS_TRANSCRIBE_BIN
+            if os.path.exists(legacy_bin):
+                transcribe_cmd = [legacy_bin, wav_path, '--locale', language, '--json']
+                result = subprocess.run(transcribe_cmd, capture_output=True, text=True, check=True, timeout=SUBPROCESS_TIMEOUT)
+            else:
+                raise RuntimeError(f"Analyzer unavailable and legacy binary not found: {legacy_bin}")
+        else:
+            error_msg = result.stderr.strip() or f"Exit code {result.returncode}"
+            if 'not available' in error_msg.lower() or 'not supported' in error_msg.lower():
+                error_msg = f"Speech recognizer not available. Please check System Preferences > Speech & Accessibility for available languages. Error: {error_msg}"
+            raise RuntimeError(error_msg)
+    
     try:
         parsed = json.loads(result.stdout.strip())
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"macos-transcribe returned invalid JSON: {result.stdout[:200]}") from e
+        raise RuntimeError(f"transcription binary returned invalid JSON: {result.stdout[:200]}") from e
+    
+    # Handle both legacy (list) and analyzer (dict) formats
     if isinstance(parsed, list):
+        # Legacy format: array of segment dicts
         texts = [s.get('text', '') for s in parsed]
         result_text = " ".join(texts)
         # Normalize multiple spaces at chunk boundaries
         result_text = re.sub(r' +', ' ', result_text).strip()
         return result_text
-    return result.stdout.strip()
+    elif isinstance(parsed, dict) and 'text' in parsed:
+        # Analyzer format: dict with 'text' key
+        result_text = parsed.get('text', '').strip()
+        # Normalize multiple spaces
+        result_text = re.sub(r' +', ' ', result_text)
+        return result_text
+    else:
+        # Fallback: return the entire output
+        return result.stdout.strip()
 
 def cleanup_temp(filepath):
     try:
@@ -338,7 +437,13 @@ def list_voices():
     return jsonify({
         "openai_voices": list(config.VOICE_MAPPING.keys()),
         "mapping": config.VOICE_MAPPING,
-        "custom_lang_mapping": config.LANG_VOICE_MAPPING
+        "custom_lang_mapping": config.LANG_VOICE_MAPPING,
+        "stt_info": {
+            "engine": get_stt_engine(),
+            "macos_version": get_macos_version(),
+            "config_stt_engine": getattr(config, 'STT_ENGINE', 'auto'),
+            "binary": os.path.basename(get_transcribe_binary())
+        }
     })
 
 if __name__ == '__main__':

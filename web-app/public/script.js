@@ -12,6 +12,42 @@ const progressContainer = document.getElementById('progressContainer');
 const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
 
+const engineName = document.getElementById('engineName');
+const macOSVersion = document.getElementById('macOSVersion');
+const placeholderWarning = document.getElementById('placeholderWarning');
+
+// Load engine info on page load
+window.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const response = await fetch('/api/engine-info');
+        if (response.ok) {
+            const info = await response.json();
+            updateEngineDisplay(info);
+        }
+    } catch (error) {
+        console.error('Error loading engine info:', error);
+    }
+});
+
+function updateEngineDisplay(info) {
+    if (info.engine) {
+        const badge = engineName;
+        badge.textContent = info.engine.toUpperCase();
+        badge.className = `engine-badge ${info.engine.toLowerCase()}`;
+    }
+    
+    if (info.macos_version) {
+        const version = Array.isArray(info.macos_version) 
+            ? info.macos_version.join('.')
+            : info.macos_version;
+        macOSVersion.textContent = `macOS ${version}`;
+    }
+}
+
+function isPlaceholderText(text) {
+    return text && text.includes('Transcription pending') && text.includes('SpeechAnalyzer API implementation');
+}
+
 generateBtn.addEventListener('click', async () => {
     const text = textInput.value;
 
@@ -86,7 +122,16 @@ transcribeBtn.addEventListener('click', async () => {
             await pollJobStatus(job_id);
         } else {
             const data = await response.json();
-            sttResult.textContent = data.text || "Nessun testo rilevato.";
+            const resultText = data.text || "Nessun testo rilevato.";
+            sttResult.textContent = resultText;
+            
+            // Show placeholder warning if applicable
+            if (isPlaceholderText(resultText)) {
+                placeholderWarning.classList.add('show');
+            } else {
+                placeholderWarning.classList.remove('show');
+            }
+            
             sttStatus.textContent = "Completato!";
         }
     } catch (error) {
@@ -105,7 +150,16 @@ async function pollJobStatus(jobId) {
         const data = await response.json();
 
         if (data.status === 'completed') {
-            sttResult.textContent = data.result?.text || "Nessun testo rilevato.";
+            const resultText = data.result?.text || "Nessun testo rilevato.";
+            sttResult.textContent = resultText;
+            
+            // Show placeholder warning if applicable
+            if (isPlaceholderText(resultText)) {
+                placeholderWarning.classList.add('show');
+            } else {
+                placeholderWarning.classList.remove('show');
+            }
+            
             sttStatus.textContent = "Completato!";
             return;
         }

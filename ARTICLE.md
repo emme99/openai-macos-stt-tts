@@ -14,7 +14,7 @@ Most people end up with one of these compromises:
 - **Offload STT/TTS to the cloud** (privacy and latency trade-offs)
 - **Accept that voice features are “nice to have”** rather than always-on
 
-On a Mac, this feels particularly wasteful. Apple already ships high-quality, hardware-accelerated speech recognition (`SFSpeechRecognizer`) and a mature TTS engine (`say` + system voices). Both run with almost zero additional memory footprint and leverage the Neural Engine / system frameworks efficiently.
+On a Mac, this feels particularly wasteful. Apple already ships high-quality, hardware-accelerated speech recognition (`SFSpeechRecognizer`, with the newer analyzer path selected where available) and a mature TTS engine (`say` + system voices). Both run with almost zero additional memory footprint and leverage the Neural Engine / system frameworks efficiently.
 
 The missing piece was a clean, drop-in OpenAI-compatible API so existing tools (Open WebUI, SillyTavern, custom agents, Home Assistant, etc.) could talk to these native services without code changes.
 
@@ -37,19 +37,23 @@ The solution is deliberately minimal:
 │  (app.py)           │
 └──────────┬──────────┘
            │
-     ┌─────┴─────┐
-     │           │
-     ▼           ▼
-┌─────────┐  ┌──────────────────────┐
-│  say    │  │  macos-transcribe    │
-│ (TTS)   │  │  (Swift +            │
-│         │  │   SFSpeechRecognizer)│
-└─────────┘  └──────────────────────┘
-     │                   │
-     └─────────┬─────────┘
+    ┌─────┴─────────────┐
+    │                   │
+    ▼                   ▼
+  ┌─────────┐      ┌──────────────────────┐
+  │  say    │      │  STT engine selector │
+  │ (TTS)   │      │  auto / legacy /     │
+  └─────────┘      │  analyzer           │
+          └──────────┬───────────┘
                ▼
-        Native macOS
-     (zero extra model RAM)
+          ┌──────────────────────┐
+          │ Swift STT tools      │
+          │ legacy: SFSpeech     │
+          │ analyzer: long-form  │
+          └──────────┬───────────┘
+               ▼
+           Native macOS
+           (zero extra model RAM)
 ```
 
 ### Requirements
@@ -59,13 +63,14 @@ To run the project you need:
 - **macOS 14 Sonoma or later** (tested primarily on Sonoma and newer)
 - **Python 3.8+**
 - **ffmpeg** (install with `brew install ffmpeg`)
-- **Xcode Command Line Tools** (`xcode-select --install`) — required to compile the Swift `macos-transcribe` binary
+- **Xcode Command Line Tools** (`xcode-select --install`) — required to compile the Swift STT binaries
 - A working Swift toolchain (comes with the Command Line Tools / Xcode)
 
 **Permissions**
 
-The first time you use Speech-to-Text, macOS will ask for **Speech Recognition** permission.  
-Go to **System Settings → Privacy & Security → Speech Recognition** and make sure the terminal (or the process running `macos-transcribe`) is allowed.
+The STT tools require **Speech Recognition** permission. Go to **System Settings → Privacy & Security → Speech Recognition** and make sure Terminal, Python, or the process running the selected binary is allowed. The requested recognition language must also be available under **System Settings → General → Language & Region**.
+
+The repository includes `setup-speech-recognition.sh` for guided setup and `test-stt-engines.sh` to check binary and language availability. If the analyzer cannot run because authorization or language support is unavailable, the API automatically attempts the legacy engine and returns a descriptive error if both engines fail.
 
 The Swift tool forces **on-device recognition** (`requiresOnDeviceRecognition = true`), so no audio leaves your Mac.
 
@@ -98,7 +103,7 @@ The voice mapping in `config.py` is still present for future flexibility, but th
 ### Key design decisions
 
 - **TTS** → Shell out to the system `say` command, then convert the resulting AIFF to the requested format with `ffmpeg`.
-- **STT** → A small Swift CLI (`macos-transcribe`) that uses Apple’s `SFSpeechRecognizer`. Audio is normalized to 16 kHz mono WAV. Files longer than ~15 seconds are automatically chunked (Apple’s recognizer has an empirical ~16 s limit per recognition request), processed sequentially, and reassembled. Long jobs return a `job_id` (HTTP 202) with a polling endpoint.
+- **STT** → Two small Swift CLIs selected through `STT_ENGINE`: the legacy `macos-transcribe` tool uses Apple’s `SFSpeechRecognizer`, while `macos-transcribe-analyzer` provides the analyzer path on macOS 26+. In `auto` mode, the server selects the analyzer on supported macOS versions and falls back to legacy when authorization or availability prevents it from running. Audio is normalized to 16 kHz mono WAV. Legacy recognition uses automatic ~15-second chunking; long jobs return a `job_id` (HTTP 202) with a polling endpoint.
 - **Everything stays local.** No model weights are loaded by the service itself.
 
 The result: STT and TTS become essentially **free** from a memory perspective while the heavy LLM can keep all the RAM/VRAM it needs.
@@ -133,9 +138,22 @@ A minimal `.env` controls the server:
 PORT=5050
 HOST=0.0.0.0
 USE_HTTP=True          # recommended for local / Home Assistant use
+STT_ENGINE=auto        # auto, legacy, or analyzer
 FFMPEG_BIN=/opt/homebrew/bin/ffmpeg
 # MACOS_TRANSCRIBE_BIN=./macos-transcribe/.build/arm64-apple-macosx/release/macos-transcribe
+# MACOS_TRANSCRIBE_ANALYZER_BIN=./macos-transcribe-analyzer/.build/arm64-apple-macosx/release/macos-transcribe-analyzer
 ```
+
+`STT_ENGINE=auto` is the recommended setting. Use `legacy` for maximum compatibility on macOS 14+ or `analyzer` to explicitly request the analyzer binary on macOS 26 Tahoe and later. The active engine is exposed through `/v1/voices`, and the web tester displays it in the interface.
+
+Build both native tools once from the project root:
+
+```bash
+cd macos-transcribe && swift build -c release && cd ..
+cd macos-transcribe-analyzer && swift build -c release && cd ..
+```
+
+The analyzer binary is optional on macOS versions where `STT_ENGINE=auto` selects the legacy engine.
 
 Typical usage looks exactly like the official OpenAI endpoints:
 
@@ -174,6 +192,8 @@ It is a small Node.js + Express application that acts as a thin proxy and provid
 
 - Simple form to generate speech (text → audio) using the native macOS voices
 - File upload for transcription with language selection
+- Active STT engine and macOS version display
+- A visible warning when a placeholder or unavailable transcription is returned
 - Real-time progress bar for long audio files (the ones that trigger automatic chunking)
 - Automatic handling of the async job polling so you can see chunk-by-chunk progress
 - Respects the same `USE_HTTP` / HTTPS settings as the main API server
@@ -197,7 +217,8 @@ It is intentionally lightweight — just enough to verify that the OpenAI-compat
 It includes:
 
 - The Flask API server
-- The Swift `macos-transcribe` tool (needs a one-time `swift build -c release`)
+- The Swift `macos-transcribe` legacy tool and `macos-transcribe-analyzer` tool (each needs a one-time `swift build -c release`)
+- Setup and diagnostic scripts for Speech Recognition authorization
 - A small web tester with progress bar for long transcriptions
 - Full English and Italian READMEs
 
